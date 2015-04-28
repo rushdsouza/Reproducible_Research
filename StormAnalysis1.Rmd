@@ -1,0 +1,716 @@
+---
+title: Exploring the U.S. National Oceanic and Atmospheric Administration's (NOAA)
+  Storm database
+output: pdf_document
+---
+
+# Analysis of U.S. NOAA Storm database
+
+## Synopsis
+Storms and other severe weather events can cause both public health and economic problems for communities and municipalities. Many severe events can result in fatalities, injuries, crop and property damage, and preventing such outcomes to the extent possible is a key concern.
+
+This project tracks the type of events that are most harmful with respect to population health in terms of FATALITIES(Death of human beings) and Injuires. It also tracks the type of events that have the greatest economic consequences in dollar terms of crop and property damage.
+
+## Loading and Processing the raw data
+
+Down the Storm Data file at https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2 and copy it in the R Studio working directory
+Download the Storm Data file and Read in the data
+```{r load, echo = TRUE,results='asis'}
+# download.file(url="http://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2", 
+# destfile="repdata-data-StormData.csv.bz2")
+
+# Reading in the data using read.csv    
+Storm <- read.csv("repdata-data-StormData.csv.bz2",stringsAsFactors=FALSE)
+```
+
+This data analysis addresses two questions about the dataset. 
+1. Across the United States, which types of events (as indicated in the EVTYPE variable) are most harmful with respect to population health?
+2. Across the United States, which types of events have the greatest economic consequences?
+Subset the original dataset to satisfy population health(FATALITIES and INJURIES) and economic consequences(CROPDMG,CROPDMGEXP, PROPDMG, PROPDMGEXP) along with a few more self explanatory variables.   
+
+Variables subset: BGN DATE, BGN TIME, TIME_ZONE, COUNTYNAME, STATE, EVTYPE, LENGTH , WIDTH, FATALITIES, INJURIES, PROPDMG, PROPDMGEXP, CROPDMG, CROPDMGEXP
+
+```{r subset, echo = TRUE,results='asis'}
+StormSubset<- Storm[ ,c("BGN_DATE","BGN_TIME","TIME_ZONE","COUNTYNAME","STATE","EVTYPE", 
+"LENGTH", "WIDTH", "FATALITIES","INJURIES", "PROPDMGEXP", "PROPDMG", 
+"CROPDMGEXP", "CROPDMG", "REFNUM")]
+# Fix the outlier. Million(M) instead of Billion(B)
+StormSubset[StormSubset$REFNUM == 605943, "PROPDMGEXP" ] <- "M"
+```
+
+Get the year component of the beginning date of the event(BGN_DATE) to enable us to display the popluation health and economic consequences on a yearly basis 
+```{r year, echo = TRUE,results='asis'}
+# Get the Year of the Event in variable BGN_YEAR  
+StormSubset$BGN_DATE1<-as.Date(as.character(StormSubset$BGN_DATE), format="%m/%d/%Y",tz="")
+StormSubset$BGN_YEAR <- as.integer(substr(as.character(StormSubset$BGN_DATE1), 1,4))
+```
+Determine the event types(variable EVTYPE) in the original dataset
+```{r eventtype, echo = TRUE,results='asis'}
+length(unique(StormSubset$EVTYPE))
+```
+
+From 1996 to present, 48 event types are recorded as defined in NWS Directive 10-1605. We must Consolidate the **`r length(unique(StormSubset$EVTYPE))`** unique events in the original dataset to one of the 48 possible values. However consolidating **`r length(unique(StormSubset$EVTYPE))`** event types to 48 is a very tedious task. Therefore we filter the data on the basis of non zero values in FATALITIES, INJURIES, CROPDMG or PROPDMG. This significantly reduces the unique EVENT types.
+
+Create a new variable, EVTYPE1 to hold the consolidated EVENT type after converting to upper case
+```{r event, echo = TRUE,results='asis'}
+StormSubset$EVTYPE <- toupper(StormSubset$EVTYPE)
+StormSubset$EVTYPE1 <- StormSubset$EVTYPE
+```
+
+### Process to answer question 1: Across the United States, which types of events (as indicated in the EVTYPE variable) are most harmful with respect to population health?
+
+Eliminate the observations in the dataset with zero(0) FATALITIES and INJURIES 
+```{r eliminate, echo = TRUE,results='asis'}
+StormSubsetHealth <- StormSubset[StormSubset$FATALITIES != 0 & StormSubset$INJURIES != 0,]
+```
+
+Determine the unique EVENT types(variable EVTYPE) in the health subset dataset, StormSubsetHealth.
+```{r eventtypehealth, echo = TRUE,results='asis'}
+length(unique(StormSubsetHealth$EVTYPE))
+```
+
+We must approximately consolidate the **`r length(unique(StormSubsetHealth$EVTYPE))`** unique events in the data subset to one of the 48 possible values.
+
+#### Consolidation of EVENT types for the population health dataset 
+
+
+Write the unique types of EVENTS to a csv file,events_health.csv for easy readability
+```{r exporthealth, echo = TRUE,results='asis'}
+EVENT_HEALTH <- data.frame(table(StormSubsetHealth$EVTYPE1))
+write.csv(EVENT_HEALTH, file="events_health.csv", row.names=FALSE)
+```
+
+#### Consolidation Methodology
+The data in terms of types of EVENT(EVTYPE) is not normalized in the TRUEST sense of the word. There are also multiple types of EVENTS that do not seem to have a match. However these EVENTS are very small in number and therefore can be ignored.  No single routine can fix The consolidation of the types of EVENT. It is a manual process using the following methodology:
+1. Search for a particular pattern(eg EXTREME) in EVTYPE1 for the EVENT "EXTREME COLD/WIND CHILL" using: 
+```{r code1, echo = TRUE,results='hide'}
+# pattern=".*EXTREME*." to match the EVENT "EXTREME COLD/WIND CHILL"
+# Use the command below without the #.
+# unique(grep( pattern, StormSubsetProp$EVTYPE1, ignore.case = FALSE, value=TRUE))
+```
+This gives you the result of unique types of EVENT for that pattern.
+2. If all the EVENTs in the result look like they match the event, "EXTREME COLD/WIND CHILL" then replace the EVTYPE1 values in the health dataset, StormSubsetHealth using: 
+```{r code2, echo = TRUE,results='hide'}
+# pattern=".*EXTREME*." to match the EVENT "EXTREME COLD/WIND CHILL"
+# Use the command below without the #.
+# StormSubsetHealth[grep(pattern, StormSubsetHealth$EVTYPE1, ignore.case = FALSE), "EVTYPE1"] 
+#<- "EXTREME COLD/WIND CHILL"
+```
+Else note the EVENTS that are not a match and repeat step 1 again for each one of these unmatched EVENTS. Resolve the all unmatched EVENTS before coming back to the original EVENT(eg EXTREME COLD/WIND CHILL) in this example for replacement.  
+
+```{r consolidate, echo = TRUE,results='asis'}
+StormSubsetHealth[grep(".*EXTREME*.", StormSubsetHealth$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "EXTREME COLD/WIND CHILL"
+StormSubsetHealth[grep(".*WIND CHILL*.", StormSubsetHealth$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "EXTREME COLD/WIND CHILL"
+
+StormSubsetHealth[grep("MARINE THUNDERSTORM.*WIND*.", StormSubsetHealth$EVTYPE1, 
+ignore.case = FALSE), "EVTYPE1"] <- "MTW"
+StormSubsetHealth[grep("THUNDER", StormSubsetHealth$EVTYPE1, 
+ignore.case = FALSE), "EVTYPE1"] <- "THUNDERSTORM WIND"
+
+StormSubsetHealth[grep(".*MARINE TSTM WIND*.", StormSubsetHealth$EVTYPE1, 
+ignore.case = FALSE), "EVTYPE1"] <- "MTW"
+StormSubsetHealth[grep(".*TSTM*.", StormSubsetHealth$EVTYPE1, 
+ignore.case = FALSE), "EVTYPE1"] <- "THUNDERSTORM WIND"
+StormSubsetHealth[grep("MTW", StormSubsetHealth$EVTYPE1, 
+ignore.case = FALSE), "EVTYPE1"] <- "MARINE THUNDERSTORM WIND"
+
+StormSubsetHealth[grep(".*SURF*.", StormSubsetHealth$EVTYPE1, 
+ignore.case = FALSE), "EVTYPE1"] <- "HIGH SURF"
+StormSubsetHealth[grep(".*HIGH SEAS*.", StormSubsetHealth$EVTYPE1, 
+ignore.case = FALSE), "EVTYPE1"] <- "HIGH SURF"
+
+StormSubsetHealth[grep(".*FLASH FLOOD*.", StormSubsetHealth$EVTYPE1,
+ignore.case = FALSE), "EVTYPE1"] <- "FF"
+StormSubsetHealth[grep(".*FLOOD*.", StormSubsetHealth$EVTYPE1, 
+ignore.case = FALSE), "EVTYPE1"] <- "FLOOD"
+StormSubsetHealth[grep(".*FF*.", StormSubsetHealth$EVTYPE1, 
+ignore.case = FALSE), "EVTYPE1"] <- "FLASH FLOOD"
+
+StormSubsetHealth[grep(".*MARINE STRONG WIND*.", StormSubsetHealth$EVTYPE1, 
+ignore.case = FALSE), "EVTYPE1"] <- "MSW"
+StormSubsetHealth[grep(".*STRONG*.", StormSubsetHealth$EVTYPE1, 
+ignore.case = FALSE), "EVTYPE1"] <- "STRONG WIND"
+StormSubsetHealth[grep(".*GUSTY*.", StormSubsetHealth$EVTYPE1, 
+ignore.case = FALSE), "EVTYPE1"] <- "STRONG WIND"
+StormSubsetHealth[grep("MSW", StormSubsetHealth$EVTYPE1, 
+ignore.case = FALSE), "EVTYPE1"] <- "MARINE STRONG WIND"
+
+StormSubsetHealth[grep(".*WINTER STORM*.", StormSubsetHealth$EVTYPE1, 
+ignore.case = FALSE), "EVTYPE1"] <- "WINTER STORM"
+
+StormSubsetHealth[grep(".*MARINE HIGH WIND*.", StormSubsetHealth$EVTYPE1, 
+ignore.case = FALSE), "EVTYPE1"] <- "MHW"
+StormSubsetHealth[grep(".*HIGH WIND*.", StormSubsetHealth$EVTYPE1, 
+ignore.case = FALSE), "EVTYPE1"] <- "HIGH WIND"
+StormSubsetHealth[grep("MHW", StormSubsetHealth$EVTYPE1, 
+ignore.case = FALSE), "EVTYPE1"] <- "MARINE HIGH WIND"
+
+StormSubsetHealth[grep(".*WINTER WEATHER*.", StormSubsetHealth$EVTYPE1, 
+ignore.case = FALSE), "EVTYPE1"] <- "WINTER WEATHER"
+
+StormSubsetHealth[grep(".*HURRICANE*.", StormSubsetHealth$EVTYPE1, 
+ignore.case = FALSE), "EVTYPE1"] <- "HURRICANE/TYPHOON"
+
+StormSubsetHealth[grep(".*TORNADO*.", StormSubsetHealth$EVTYPE1, 
+ignore.case = FALSE), "EVTYPE1"] <- "TORNADO"
+
+StormSubsetHealth[grep(".*TROPICAL*.", StormSubsetHealth$EVTYPE1, 
+ignore.case = FALSE), "EVTYPE1"] <- "TROPICAL STORM"
+
+StormSubsetHealth[grep(".*RIP CURRENT*.", StormSubsetHealth$EVTYPE1, 
+ignore.case = FALSE), "EVTYPE1"] <- "RIP CURRENT"
+
+StormSubsetHealth[grep(".*SNOW*.", StormSubsetHealth$EVTYPE1, 
+ignore.case = FALSE), "EVTYPE1"] <- "HEAVY SNOW"
+
+StormSubsetHealth[grep(".*HEAT WAVE*.", StormSubsetHealth$EVTYPE1, 
+ignore.case = FALSE), "EVTYPE1"] <- "HEAT"
+
+StormSubsetHealth[grep(".*ICY ROADS*.", StormSubsetHealth$EVTYPE1, 
+ignore.case = FALSE), "EVTYPE1"] <- "ICE STORM"
+StormSubsetHealth[grep(".*BLACK ICE*.", StormSubsetHealth$EVTYPE1, 
+ignore.case = FALSE), "EVTYPE1"] <- "ICE STORM"
+StormSubsetHealth[grep("ICE", StormSubsetHealth$EVTYPE1, 
+ignore.case = FALSE), "EVTYPE1"] <- "ICE STORM"
+
+StormSubsetHealth[grep(".*LANDSLIDE*.", StormSubsetHealth$EVTYPE1, 
+ignore.case = FALSE), "EVTYPE1"] <- "DEBRIS FLOW"
+```
+
+Install and load the dplyr, knitr package to utilize grouping of data 
+```{r groupevtype, echo = TRUE,results='asis'}
+#if (!require("dplyr")) {
+#suppressWarnings(suppressMessages(install.packages("dplyr")))
+#}
+if (!require("knitr")) {
+suppressWarnings(suppressMessages(install.packages("knitr")))
+}
+```
+
+#### Grouping and Summarizing the population health data
+
+
+Group the Storm data set by EVENT type(EVTYPE1), summarize the values for totals of  FATALITIES and INJURIES and then sort by highest FATALITIES first followed by highest INJURIES.
+```{r groupevent, echo = TRUE,results='asis'}
+StormSubsetHealthFbyE_1 <- with(StormSubsetHealth, aggregate(FATALITIES,by=list(EVENT=EVTYPE1), sum))
+colnames(StormSubsetHealthFbyE_1) <- c("EVENT", "FATALITIES")
+
+StormSubsetHealthIbyE_1 <- with(StormSubsetHealth, aggregate(INJURIES,by=list(EVENT=EVTYPE1), sum))
+colnames(StormSubsetHealthIbyE_1) <- c("EVENT", "INJURIES")
+
+StormSubsetHealth3 <- merge(StormSubsetHealthFbyE_1, StormSubsetHealthIbyE_1, by.x = "EVENT", by.y = "EVENT" )
+StormSubsetHealth4 <- StormSubsetHealth3[order(-StormSubsetHealth3$FATALITIES),]
+StormSubsetHealth5 <- StormSubsetHealth3[order(-StormSubsetHealth3$INJURIES),]
+
+colnames(StormSubsetHealth4) <- c("EVENT", "FATALITIES", "INJURIES")
+colnames(StormSubsetHealth5) <- c("EVENT", "FATALITIES", "INJURIES")
+```
+
+The top 10 Storm Data Events that are most harmful with respect to population health in terms of FATALITIES is are as shown below.
+```{r grouptop10events, echo = TRUE,results='asis'}
+kable(head(StormSubsetHealth4,10), row.names=FALSE, align="c")
+```
+
+The top 10 Storm Data Events that are most harmful with respect to population health in terms of INJURIES is are as shown below.
+```{r grouptop10events1, echo = TRUE,results='asis'}
+kable(head(StormSubsetHealth5,10), row.names=FALSE, align="c")
+```
+
+
+### Process to answer question 2: Across the United States, which types of events have the greatest economic consequences? This will be broken down into two parts. The first is Crop damage and second is Property damage.
+
+Eliminate the observations in the dataset with zero(0) CROP DAMAGE(CROPDMG) or PROPERTY DAMAGE (PROPDMG) to create a broad economic subset(StormSubsetEconomic) of data with non zero values. This subset, StormSubsetEconomic will be processed separately for Crop damage and Property damage.
+```{r economic, echo = TRUE,results='asis'}
+StormSubsetEconomic <- StormSubset[(StormSubset$CROPDMG != 0 | StormSubset$PROPDMG != 0),]
+```
+The Crop damage cost is estimated by multiplying the variable ending "exp"(CROPDMGEXP and PROPDMGEXP) by their respective damage count variables(CROPDMG and PROPDMG). The valid values for the exp variables K(thousand = 1000), M(million = 1000000) and B(billion = 1000000000).  
+
+#### Crop Damage data consolidation
+Create a new dataset for Crop damage clean up from the economic dataset
+```{r crop, echo = TRUE,results='asis'}
+StormSubsetCrop <- StormSubsetEconomic
+StormSubsetCrop <- StormSubsetCrop[(StormSubsetCrop$CROPDMG != 0),]
+```
+
+Get the distinct values for CROPDMGEXP in the dataset 
+```{r cropexp, echo = TRUE,results='asis'}
+cexp <- data.frame(table(StormSubsetCrop$CROPDMGEXP)) 
+colnames(cexp) <- c("CROPDMGEXP", "Freq")
+kable(cexp, row.names=FALSE, align="c")
+```
+
+There are CROPDMGEXP values of k and m. Convert these to K and M respectively. Eliminate observations with values 0, ? and ""(blank)  
+```{r cropexpval, echo = TRUE,results='asis'}
+StormSubsetCrop[StormSubsetCrop$CROPDMGEXP=="k", "CROPDMGEXP"] <- "K"
+StormSubsetCrop[StormSubsetCrop$CROPDMGEXP=="m", "CROPDMGEXP"] <- "M"
+```
+Subset only observations with CROPDMGEXP values of K, M and B
+```{r cropfinal, echo = TRUE,results='asis'}
+StormSubsetCrop <- StormSubsetCrop[(StormSubsetCrop$CROPDMGEXP == "K") | 
+(StormSubsetCrop$CROPDMGEXP == "M") | (StormSubsetCrop$CROPDMGEXP == "B"),]
+```
+
+Calculate actual Crop damage cost by multiplying CROPDMG by CROPDMGEXP.  Valid values for CROPDMGEXP are K(thousand = 1000), M(million = 1000000) and B(billion = 1000000000). Store the Crop damage cost in variable, CROPDMGCOST    
+```{r cropcost, echo = TRUE,results='asis'}
+StormSubsetCrop <- cbind(StormSubsetCrop,CROPDMGCOST = 
+ifelse((StormSubsetCrop$CROPDMGEXP=="B"),1000000000 * StormSubsetCrop$CROPDMG,0))
+
+StormSubsetCrop$CROPDMGCOST <- ifelse((StormSubsetCrop$CROPDMGEXP == "M"), 
+1000000 * StormSubsetCrop$CROPDMG,  StormSubsetCrop$CROPDMGCOST)
+
+StormSubsetCrop$CROPDMGCOST <- ifelse((StormSubsetCrop$CROPDMGEXP == "K"), 
+1000 * StormSubsetCrop$CROPDMG, StormSubsetCrop$CROPDMGCOST)
+```
+
+Write the unique types of EVENTS to a csv file,events_crop.csv for easy readability
+```{r exportcrop, echo = TRUE,results='asis'}
+EVENT_CROP <- data.frame(table(StormSubsetCrop$EVTYPE1))
+write.csv(EVENT_CROP, file="events_crop.csv", row.names=FALSE)
+```
+
+Consolidate the **`r length(unique(StormSubsetCrop$EVTYPE1))`** EVENT type to 48 possible values in variable EVTYPE1. Look above for Consolidation Methodology in this document.
+```{r consolidatecrop, echo = TRUE,results='asis'}
+StormSubsetCrop[grep(".*EXTREME*.", StormSubsetCrop$EVTYPE1, ignore.case = FALSE),
+"EVTYPE1"] <- "EXTREME COLD/WIND CHILL"
+
+StormSubsetCrop[grep(".*THUNDER*.", StormSubsetCrop$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "THUNDERSTORM WIND"
+StormSubsetCrop[grep("THUDERSTORM WINDS", StormSubsetCrop$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "THUNDERSTORM WIND"
+
+StormSubsetCrop[grep(".*TORNADO*.", StormSubsetCrop$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "TORNADO"
+
+StormSubsetCrop[grep(".*TSTM*.", StormSubsetCrop$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "THUNDERSTORM WIND"
+
+StormSubsetCrop[grep(".*STORM SURGE*.", StormSubsetCrop$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "STORM SURGE/TIDE"
+
+StormSubsetCrop[grep(".*HEAVY RAIN/HIGH SURF*.", StormSubsetCrop$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "HIGH SURF"
+
+StormSubsetCrop[grep(".*HEAVY SNOW*.", StormSubsetCrop$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "HEAVY SNOW"
+
+StormSubsetCrop[grep(".*HURRICANE*.", StormSubsetCrop$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "HURRICANE/TYPHOON"
+StormSubsetCrop[grep(".*TYPHOON*.", StormSubsetCrop$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "HURRICANE/TYPHOON"
+
+StormSubsetCrop[grep(".*WINTER*.", StormSubsetCrop$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "WINTER STORM"
+
+StormSubsetCrop[grep(".*DUST*.", StormSubsetCrop$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "DUST STORM"
+
+StormSubsetCrop[grep(".*HIGH WIND*.", StormSubsetCrop$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "HIGH WIND"
+
+StormSubsetCrop[grep(".*HEAVY RAIN*.", StormSubsetCrop$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "HEAVY RAIN"
+
+StormSubsetCrop[grep(".*RIVER FLOOD*.", StormSubsetCrop$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "COASTAL FLOOD"
+StormSubsetCrop[grep(".*COASTAL FLOODING*.", StormSubsetCrop$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "COASTAL FLOOD"
+StormSubsetCrop[grep(".*COASTAL FLOOD*.", StormSubsetCrop$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "CF"
+
+StormSubsetCrop[grep(".*FLASH FLOOD*.", StormSubsetCrop$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "FF"
+StormSubsetCrop[grep(".*FLOOD*.", StormSubsetCrop$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "FLOOD"
+
+StormSubsetCrop[grep("CF", StormSubsetCrop$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "COASTAL FLOOD"
+StormSubsetCrop[grep("FF", StormSubsetCrop$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "FLASH FLOOD"
+
+StormSubsetCrop[grep(".*HAIL*.", StormSubsetCrop$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "HAIL"
+
+StormSubsetCrop[grep(".*TROPICAL STORM*.", StormSubsetCrop$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "TROPICAL STORM"
+
+StormSubsetCrop[grep(".*MARINE STRONG WIND*.", StormSubsetCrop$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "MSW"
+StormSubsetCrop[grep(".*STRONG WIND*.", StormSubsetCrop$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "STRONG WIND"
+StormSubsetCrop[grep(".*MSW*.", StormSubsetCrop$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "MARINE STRONG WIND"
+
+StormSubsetCrop[grep(".*GUST*.", StormSubsetCrop$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "STRONG WIND"
+
+StormSubsetCrop[grep(".*HEAT WAVE*.", StormSubsetCrop$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "HEAT"
+
+StormSubsetCrop[grep(".*WILD*.", StormSubsetCrop$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "WF"
+StormSubsetCrop[grep(".*FOREST*.", StormSubsetCrop$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "WILDFIRE"
+StormSubsetCrop[grep("WF", StormSubsetCrop$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "WILDFIRE"
+
+StormSubsetCrop[grep(".*FREEZE*.", StormSubsetCrop$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "FROST/FREEZE"
+
+StormSubsetCrop[grep(".*LANDSLIDE*.", StormSubsetCrop$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "DEBRIS FLOW"
+```
+
+Group the Crop damage data set by EVENT type(EVTYPE1), summarize the values for the totals of the Crop Damage cost(CROPDMGCOST) and then sort by the highest Crop Damage cost(CROPDMGCOST) first.
+```{r groupeventcrop, echo = TRUE,results='asis'}
+StormSubsetCrop1 <- with(StormSubsetCrop, aggregate(CROPDMGCOST,by=list(EVENT=EVTYPE1), sum))
+colnames(StormSubsetCrop1) <- c("EVENT", "CROPDMGCOST")
+
+StormSubsetCrop2 <- StormSubsetCrop1[order(-StormSubsetCrop1$CROPDMGCOST),] 
+
+StormSubsetCrop2$CROP_DAMAGE_COST <- ifelse(StormSubsetCrop2$CROPDMGCOST > 1000000000, 
+paste(signif(StormSubsetCrop2$CROPDMGCOST/1000000000, digits=5),"B", sep=" "), 
+StormSubsetCrop2$CROPDMGCOST) 
+colnames(StormSubsetCrop2) <- c("EVENT","CROPDMGCOST", "CROP DAMAGE COST")
+StormSubsetCrop2$EVENT <- factor(StormSubsetCrop2$EVENT)
+```
+
+The Top 10 Storm Data Events with greatest economic consequences being Crop damage are as shown below in tabular form.
+```{r croptop10events, echo = TRUE,results='asis'}
+kable(head(StormSubsetCrop2[, c("EVENT","CROP DAMAGE COST")],10), row.names=FALSE, align="c")
+```
+
+#### Property Damage data consolidation
+Create a new dataset for Property damage clean up from the economic dataset
+```{r prop, echo = TRUE,results='asis'}
+StormSubsetProp <- StormSubsetEconomic
+StormSubsetProp <- StormSubsetProp[(StormSubsetProp$PROPDMG != 0),]
+```
+
+Get the distinct values for CROPDMGEXP in the dataset 
+```{r propexp, echo = TRUE,results='asis'}
+pexp <- data.frame(table(StormSubsetProp$PROPDMGEXP)) 
+colnames(pexp) <- c("PROPDMGEXP", "Freq")
+kable(pexp, row.names=FALSE, align="c")
+```
+
+There are PROPDMGEXP values of m. Convert m to M respectively. Eliminate observations with values 0, ? and ""(blank)  
+```{r propexpval, echo = TRUE,results='asis'}
+StormSubsetProp[StormSubsetProp$PROPDMGEXP=="m", "PROPDMGEXP"] <- "M"
+```
+
+Subset only observations with PROPDMGEXP values of K, M and B
+```{r propfinal, echo = TRUE,results='asis'}
+StormSubsetProp <- StormSubsetProp[(StormSubsetProp$PROPDMGEXP == "K") | 
+(StormSubsetProp$PROPDMGEXP == "M") | (StormSubsetProp$PROPDMGEXP == "B"),]
+```
+
+Calculate actual Property damage cost by multiplying PROPDMG by PROPDMGEXP. Values for PROPDMGEXP are K(thousand = 1000), M(million = 1000000) and B(billion = 1000000000). Store the Property damage cost in variable, PROPDMGCOST    
+```{r propcost, echo = TRUE,results='asis'}
+StormSubsetProp <- cbind(StormSubsetProp,PROPDMGCOST = 
+ifelse((StormSubsetProp$PROPDMGEXP == "B"), 1000000000 * StormSubsetProp$PROPDMG, 0))
+
+StormSubsetProp$PROPDMGCOST <- ifelse((StormSubsetProp$PROPDMGEXP == "M"), 
+1000000 * StormSubsetProp$PROPDMG,  StormSubsetProp$PROPDMGCOST)
+
+StormSubsetProp$PROPDMGCOST <- ifelse((StormSubsetProp$PROPDMGEXP == "K"), 
+1000 * StormSubsetProp$PROPDMG, StormSubsetProp$PROPDMGCOST)
+```
+
+Write the unique types of EVENTS to a csv file,events_prop.csv for easy readability
+```{r exportprop, echo = TRUE,results='asis'}
+EVENT_PROP <- data.frame(table(StormSubsetProp$EVTYPE1))
+write.csv(EVENT_PROP, file="events_prop.csv", row.names=FALSE)
+```
+
+
+Consolidate the **`r length(unique(StormSubsetProp$EVTYPE1))`** EVENT types to 48 possible values as defined in NWS Directive 10-1605 in variable EVTYPE1
+```{r consolidateprop, echo = TRUE,results='asis'}
+StormSubsetProp[grep("MARINE THUNDERSTORM WIND", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "MTW"
+StormSubsetProp[grep(".*THUN*.", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "THUNDERSTORM WIND"
+StormSubsetProp[grep("THUDERSTORM WINDS", StormSubsetProp$EVTYPE1, ignore.case = FALSE), "EVTYPE1"] <- "THUNDERSTORM WIND"
+StormSubsetProp[grep("TUNDERSTORM WIND", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "THUNDERSTORM WIND"
+
+StormSubsetProp[grep("MARINE TSTM WIND", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "MTW"
+
+StormSubsetProp[grep(".*DUST DEVIL*.", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "DUST DEVIL"
+StormSubsetProp[grep(".*WATERSPOUT*.", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "WATERSPOUT"
+
+StormSubsetProp[grep(".*TORNADO*.", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "TORNADO"
+StormSubsetProp[grep("TORNDAO", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "TORNADO"
+
+StormSubsetProp[grep("NON-TSTM WIND", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "HIGH WIND"
+
+StormSubsetProp[grep(".*TSTM*.", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "THUNDERSTORM WIND"
+
+StormSubsetProp[grep("MTW", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "MARINE THUNDERSTORM WIND"
+
+StormSubsetProp[grep(".*HURRICANE*.", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "HURRICANE/TYPHOON"
+StormSubsetProp[grep(".*TYPHOON*.", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "HURRICANE/TYPHOON"
+
+StormSubsetProp[grep(".*HEAVY SNOW*.", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "HEAVY SNOW"
+
+StormSubsetProp[grep(".*TROPICAL STORM*.", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "TROPICAL STORM"
+
+StormSubsetProp[grep("BLIZZARD/WINTER STORM", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "BLIZZARD"
+
+StormSubsetProp[grep(".*WINTER STORM*.", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "WINTER STORM"
+
+StormSubsetProp[grep(".*WINTER WEATHER*.", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "WINTER WEATHER"
+
+StormSubsetProp[grep(".*WILD*.", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "WILDFIRE"
+StormSubsetProp[grep(".*FOREST*.", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "WILDFIRE"
+
+StormSubsetProp[grep("HEAVY SURF", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "HIGH SURF"
+
+StormSubsetProp[grep(".*DUST STORM*.", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "DUST STORM"
+
+StormSubsetProp[grep("SNOW/HIGH WINDS", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "HIGH WIND"
+
+StormSubsetProp[grep("MARINE HIGH WIND", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "MHW"
+
+StormSubsetProp[grep(".*HIGH WIND*.", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "HIGH WIND"
+
+StormSubsetProp[grep("MHW", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "MARINE HIGH WIND"
+
+StormSubsetProp[grep(".*EFFECT*.", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "LAKE-EFFECT SNOW"
+
+StormSubsetProp[grep("FLASH FLOOD - HEAVY RAIN", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "FLASH FLOOD"
+
+StormSubsetProp[grep("FLOOD & HEAVY RAIN", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "FLOOD"
+
+StormSubsetProp[grep(".*LIGHTNING*.", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "LIGHTNING"
+StormSubsetProp[grep("LIGNTNING", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "LIGHTNING"
+StormSubsetProp[grep("LIGHTING", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "LIGHTNING"
+
+StormSubsetProp[grep(".*HEAVY RAIN*.", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "HEAVY RAIN"
+
+StormSubsetProp[grep("LAKE-EFFECT SNOW", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "LES"
+
+StormSubsetProp[grep("SNOW", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "HEAVY SNOW"
+
+StormSubsetProp[grep("LES", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "LAKE-EFFECT SNOW"
+
+StormSubsetProp[grep("MARINE HAIL", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "MH"
+StormSubsetProp[grep("MARINE STRONG WIND", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "MSW"
+StormSubsetProp[grep("MARINE THUNDERSTORM WIND", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "MTW"
+
+StormSubsetProp[grep(".*GUSTY*.", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "STRONG WIND"
+
+StormSubsetProp[grep(".*HAIL*.", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "HAIL"
+
+StormSubsetProp[grep(".*STRONG WIND*.", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "STRONG WIND"
+
+StormSubsetProp[grep("MH", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "MARINE HAIL"
+StormSubsetProp[grep("MSW", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "MARINE STRONG WIND"
+StormSubsetProp[grep("MTW", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "MARINE THUNDERSTORM WIND"
+
+StormSubsetProp[grep(".*COASTAL*.", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "COASTAL FLOOD"
+
+StormSubsetProp[grep(".*COASTAL*.", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "COASTAL FLOOD"
+
+StormSubsetProp[grep(".*EXTREME HEAT*.", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "EXCESSIVE HEAT"
+
+StormSubsetProp[grep(".*EXTREME*.", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "EXTREME COLD/WIND CHILL"
+
+StormSubsetProp[grep("EXTENDED COLD", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "EXTREME COLD/WIND CHILL"
+StormSubsetProp[grep("RECORD COLD", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "EXTREME COLD/WIND CHILL"
+
+StormSubsetProp[grep("FLASH FLOOD", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "FF"
+StormSubsetProp[grep("FLOOD FLASH", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "FF"
+
+StormSubsetProp[grep("FLOOD/RIVER FLOOD", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "FLOOD"
+
+StormSubsetProp[grep(".*RIVER FLOOD*.", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "COASTAL FLOOD"
+StormSubsetProp[grep("EROSION/CSTL FLOOD", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "COASTAL FLOOD"
+StormSubsetProp[grep("TIDAL FLOODING", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "COASTAL FLOOD"
+StormSubsetProp[grep("RIVER AND STREAM FLOOD", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "COASTAL FLOOD"
+
+StormSubsetProp[grep("COASTAL FLOOD", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "CF"
+StormSubsetProp[grep("EROSION/CSTL FLOOD", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "COASTAL FLOOD"
+
+StormSubsetProp[grep("LAKE FLOOD", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "LAKESHORE FLOOD"
+StormSubsetProp[grep("LAKESHORE FLOOD", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "LF"
+
+StormSubsetProp[grep(".*FLOOD*.", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "FLOOD"
+
+StormSubsetProp[grep("CF", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "COASTAL FLOOD"
+StormSubsetProp[grep("LF", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "LAKESHORE FLOOD"
+StormSubsetProp[grep("FF", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "FLASH FLOOD"
+
+StormSubsetProp[grep("EXTREME COLD/WIND CHILL", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "ECWC"
+
+StormSubsetProp[grep(".*COLD*.", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "COLD/WIND CHILL"
+StormSubsetProp[grep("ECWC", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "EXTREME COLD/WIND CHILL"
+
+StormSubsetProp[grep(".*STORM SURGE*.", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "STORM SURGE/TIDE"
+
+StormSubsetProp[grep(".*LANDSLIDE*.", StormSubsetProp$EVTYPE1, ignore.case = FALSE), 
+"EVTYPE1"] <- "DEBRIS FLOW"
+```
+Group the Property damage data set by EVENT type(EVTYPE1), summarize the values for Property Damage cost(PROPDMGCOST) and then sort by highest PROPDMGCOST first.
+```{r groupeventprop, echo = TRUE,results='asis'}
+StormSubsetProp1 <- with(StormSubsetProp, aggregate(PROPDMGCOST,by=list(EVENT=EVTYPE1), sum))
+colnames(StormSubsetProp1) <- c("EVENT", "PROPDMGCOST")
+
+StormSubsetProp2 <- StormSubsetProp1[order(-StormSubsetProp1$PROPDMGCOST),] 
+
+StormSubsetProp2$PROPERTY_DAMAGE_COST <- ifelse(StormSubsetProp2$PROPDMGCOST > 1000000000, 
+paste(signif(StormSubsetProp2$PROPDMGCOST/1000000000, digits=5),"B", sep=" "), StormSubsetProp2$PROPDMGCOST) 
+colnames(StormSubsetProp2) <- c("EVENT","PROPDMGCOST","PROPERTY DAMAGE COST")
+```
+
+The top 10 Storm Data Events with greatest economic consequences being Property damage are as shown below.
+```{r proptop10events, echo = TRUE,results='asis'}
+kable(head(StormSubsetProp2[, c("EVENT","PROPERTY DAMAGE COST")],10), row.names=FALSE, align="c")
+```
+
+Group the Property damage data set by EVENT type(EVTYPE1) and STATE(STATE), summarize the values for Property Damage cost(PROPDMGCOST) and then sort by highest PROPDMGCOST first.
+```{r groupeventstateprop, echo = TRUE,results='hide'}
+StormSubsetPropState1 <- with(StormSubsetProp, aggregate(PROPDMGCOST,by=list(YEAR=BGN_YEAR,EVENT=EVTYPE1, STATE=STATE), sum))
+colnames(StormSubsetPropState1) <- c("YEAR","EVENT","STATE", "PROPDMGCOST")
+
+StormSubsetPropState2 <- StormSubsetPropState1[order(-StormSubsetPropState1$YEAR,-StormSubsetPropState1$PROPDMGCOST),]
+source('C:/russel/CurrencyFormat.R')
+StormSubsetPropState2 <- StormSubsetPropState2[(StormSubsetPropState2$PROPDMG != 0),]
+
+StormSubsetPropState2$PROPERTY_DAMAGE_COST <- ifelse((StormSubsetPropState2$PROPDMGCOST > 1000000 & StormSubsetPropState2$PROPDMGCOST < 1000000000) , 
+paste(signif(StormSubsetPropState2$PROPDMGCOST/1000000, digits=5),"M", sep=" "), StormSubsetPropState2$PROPDMGCOST) 
+
+StormSubsetPropState2$PROPERTY_DAMAGE_COST <- ifelse(StormSubsetPropState2$PROPDMGCOST > 1000000000, 
+paste(signif(StormSubsetPropState2$PROPDMGCOST/1000000000, digits=5),"B", sep=" "), StormSubsetPropState2$PROPERTY_DAMAGE_COST) 
+
+StormSubsetPropState2$PROPERTY_DAMAGE_COST <- ifelse(StormSubsetPropState2$PROPDMGCOST < 1000000, 
+paste(signif(StormSubsetPropState2$PROPDMGCOST/1000, digits=5),"K", sep=" "), StormSubsetPropState2$PROPERTY_DAMAGE_COST) 
+
+# StormSubsetPropState2$PROPERTY_DAMAGE_COST <- CurrencyFormat(StormSubsetPropState2$PROPDMGCOST,F)
+
+colnames(StormSubsetPropState2) <- c("YEAR","EVENT", "STATE", "PROPDMGCOST", "PROPERTY DAMAGE COST")
+```
+
+The top 10 Storm Data Events with greatest economic consequences being Property damage are as shown below.
+```{r proptop10eventstate, echo = TRUE,results='asis'}
+# kable(head(StormSubsetPropState2[, c("STATE", "EVENT", "PROPERTY DAMAGE COST")],10))
+```
+
+```{r proptop10eventstate1, echo = TRUE,results='asis'}
+year <- unique(StormSubsetPropState2$YEAR)
+par(mfrow=c(1,3))
+for (i in 1:length(year)) {
+print(kable(head(StormSubsetPropState2[ StormSubsetPropState2$YEAR == year[i], c(1:3,5)],10), row.names=FALSE, align="c"))
+}
+```
+
+##RESULTS
+
+Barplot for top 10 Storm Data Events that are most harmful with respect to population health in terms of FATALITIES and INJURIES
+
+```{r healthbarplot, echo = TRUE,results='asis'}
+par(mfrow = c(1, 2), mar=c(8, 4, 4, 2), las = 2, cex.axis=0.65)
+with(StormSubsetHealth4,
+{
+    fat <- as.table(head(StormSubsetHealth4[,c("FATALITIES")],10))
+    dimnames(fat) <- list(head(StormSubsetHealth4[,c("EVENT")],10))
+    barplot(fat, main="Top 10 FATALITIES for EVENT types", col="red", ylab="Fatalities")
+
+    inj <- as.table(head(StormSubsetHealth5[,c("INJURIES")],10))
+    dimnames(inj) <- list(head(StormSubsetHealth5[,c("EVENT")],10))
+    barplot(inj, main="Top 10 INJURIES for EVENT type", col="yellow", , ylab="Injuries")
+})
+```
+
+Boxplot for Top 10 Storm Data Events with greatest economic consequences being Crop damage.
+
+```{r croptop10eventsbox, echo = TRUE,results='asis'}
+crop10 <- data.frame(head(StormSubsetCrop2[, "EVENT"],10))
+colnames(crop10)<- "EVENT"
+par(mfrow=c(1,1), mar=c(9, 4, 4, 2),las = 2, cex.axis=0.65)
+boxplot(CROPDMGCOST ~ EVTYPE1, data=subset(StormSubsetCrop, 
+subset=StormSubsetCrop$EVTYPE1 %in% crop10$EVENT), plot=TRUE, 
+main="Top 10 Highest Crop Damage EVENT types", ylab="Crop Damage Cost(USD)", 
+col.axis = "red", col.main="red", col.lab = "blue")
+```
+
+Boxplot for Top 10 Storm Data Events with greatest economic consequences being Property damage.
+
+
+```{r proptop10eventsbox, echo = TRUE,results='asis'}
+prop10 <- data.frame(head(StormSubsetProp2[, "EVENT"],10))
+colnames(prop10)<- "EVENT"
+par(mfrow=c(1,1), mar=c(8, 4, 4, 2), las = 2, cex.axis=0.65)
+boxplot(PROPDMGCOST ~ EVTYPE1, data=subset(StormSubsetProp, 
+subset=StormSubsetProp$EVTYPE1 %in% prop10$EVENT), plot=TRUE, 
+main="Top 10 Highest Property Damage EVENT types", ylab="Property Damage Cost(USD)", 
+col.axis = "red", col.main="red", col.lab = "blue")
+```
